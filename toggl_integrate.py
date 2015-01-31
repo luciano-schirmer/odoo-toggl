@@ -122,8 +122,12 @@ local = utc.astimezone(tz_local)
 print 'Last task work entry was ' + local.strftime('%Y-%m-%d %H:%M')
 
 # Calculate start date to get data from Toggl
-since = local + timedelta(days=1)
-until = datetime.now().replace(tzinfo=tz_local) + timedelta(days=-1)
+since = local.replace(hour=0, minute=0, second=0, microsecond=0) + \
+        timedelta(days=1)
+until = datetime.now().replace(
+        tzinfo=tz_local, hour=0, minute=0, second=0, microsecond=0) + \
+            timedelta(days=-1)
+
 
 # Prepare Toggl requests
 api_url = TOGGL_API_URL + 'time_entries'
@@ -140,7 +144,7 @@ params = {
 
 # Iterate each day
 cur_date = since
-while cur_date < until:
+while cur_date <= until:
 
     # Informative message
     print 'Processing Toggl time entries from {0}...'.format(
