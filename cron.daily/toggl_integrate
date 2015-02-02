@@ -3,6 +3,6 @@
 EXE=/opt/odoo_scripts/scripts/toggl_integrate.py
 LOGFILE=/var/log/toggl_integrate.log
 
-echo "=============== [$(date)] ===============" >> $LOGFILE
-$EXE -u admin -p password >> $LOGFILE
+echo "=============== [$(date)] ===============" >> $LOGFILE 2>&1
+$EXE -u admin -p password >> $LOGFILE 2>&1
 
