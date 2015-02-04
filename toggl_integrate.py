@@ -40,7 +40,8 @@ if args.password:
     odoo_password = args.password
 else:
     odoo_password = getpass.getpass('Odoo Password: ')
-print
+if not (args.username and args.password):
+    print
 
 # Connect to Odoo
 connection = openerplib.get_connection(
