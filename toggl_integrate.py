@@ -13,22 +13,22 @@ import dateutil.parser
 import argparse
 
 # Definitions
-ODOO_HOSTNAME = '192.168.1.4' # Odoo hostname
-ODOO_DATABASE = 'prod' # Odoo database name
-ODOO_USER = 'odoo_user' # Odoo user name
-ODOO_TIMEZONE = 'America/Sao_Paulo' # Timezone
-TOGGL_API_TOKEN = '' # please complete with Toggl API token 
+ODOO_HOSTNAME = '192.168.1.4'  # Odoo hostname
+ODOO_DATABASE = 'prod'  # Odoo database name
+ODOO_USER = 'odoo_user'  # Odoo user name
+ODOO_TIMEZONE = 'America/Sao_Paulo'  # Timezone
+TOGGL_API_TOKEN = ''  # please complete with Toggl API token
 TOGGL_API_URL = 'https://www.toggl.com/api/v8/'
 TOGGL_REPORTS_URL = 'https://toggl.com/reports/api/v2/'
-TOGGL_WORKSPACE = 'Company' # Toggl workspace to process
-TOGGL_USER_AGENT = 'User name <email@address>' # This is required by Toggl
+TOGGL_WORKSPACE = 'Company'  # Toggl workspace to process
+TOGGL_USER_AGENT = 'User name <email@address>'  # This is required by Toggl
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Integrate Odoo with Toggl.')
 parser.add_argument('-u', '--username', action='store', help='Odoo username')
 parser.add_argument('-p', '--password', action='store', help='Odoo password')
 parser.add_argument('-o', '--one', action='store_true',
-        help='Process only one day and exit')
+                    help='Process only one day and exit')
 args = parser.parse_args()
 
 # Get Odoo user name and password
@@ -44,11 +44,10 @@ if not (args.username and args.password):
     print
 
 # Connect to Odoo
-connection = openerplib.get_connection(
-        hostname = ODOO_HOSTNAME,
-        database = ODOO_DATABASE,
-        login    = odoo_username,
-        password = odoo_password)
+connection = openerplib.get_connection(hostname=ODOO_HOSTNAME,
+                                       database=ODOO_DATABASE,
+                                       login=odoo_username,
+                                       password=odoo_password)
 
 # Toggl authentication via HTTP Basic Auth
 url = TOGGL_API_URL + 'me'
@@ -56,12 +55,12 @@ response = requests.get(url, auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
 if response.status_code != 200:
     sys.exit('Login failed. Check your API key.')
 response = response.json()
-#print json.dumps(response, sort_keys=True, indent=4, separators=(',', ': '))
+# print json.dumps(response, sort_keys=True, indent=4, separators=(',', ': '))
 
 # Workspace id
 try:
     wid = [item['id'] for item in response['data']['workspaces']
-            if item['admin'] == True and item['name'] == TOGGL_WORKSPACE][0]
+           if item['admin'] == True and item['name'] == TOGGL_WORKSPACE][0]
 except IndexError:
     sys.exit('Workspace not found!')
 
@@ -72,8 +71,8 @@ if response.status_code != 200:
     sys.exit('Request failed!')
 response = response.json()
 projects = [{'id': item['id'], 'name': item['name'],
-        'active': item['active'], 'archive': True}
-        for item in response]
+             'active': item['active'], 'archive': True}
+            for item in response]
 
 # Add Oddo tasks as Toggl projects and create dictionary with ids to use later.
 task_model = connection.get_model('project.task')
@@ -97,8 +96,9 @@ for task in open_tasks:
             'wid': wid,
             'color': '13'
         }}
-        response = requests.post(url, data=json.dumps(data),
-                auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+        response = requests.post(
+            url, data=json.dumps(data),
+            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
         if response.status_code != 200:
             sys.exit('Request failed!')
 
@@ -111,7 +111,7 @@ user_id = user_info['id']
 # Find last date with task work entry in Odoo
 work_model = connection.get_model('project.task.work')
 works = work_model.search([('user_id', '=', user_id)], limit=1,
-        order='date DESC')
+                          order='date DESC')
 work_info = work_model.read(works[0], ['date'])
 
 # Convert UTC time to local time
@@ -159,7 +159,7 @@ while cur_date <= until:
             hour=23, minute=59, second=59, microsecond=0).isoformat()
     }
     response = requests.get(api_url, params=api_params,
-            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+                            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
     if response.status_code != 200:
         sys.exit('Request failed!' + str(response.status_code))
     response = response.json()
@@ -168,7 +168,7 @@ while cur_date <= until:
         total_duration += item['duration']
     if total_duration != 86400:
         sys.exit('Total duration is ' + str(total_duration) +
-                '. Must be 86400!')
+                 '. Must be 86400!')
 
     # Filter current date
     filter_date = cur_date.strftime('%Y-%m-%d')
@@ -178,18 +178,18 @@ while cur_date <= until:
     # Request to verify if all time entries have an associated project
     params['project_ids'] = '0'
     response = requests.get(url, params=params,
-            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+                            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
     if response.status_code != 200:
         sys.exit('Request failed!' + str(response.status_code))
     response = response.json()
     if len(response['data']) > 0:
         sys.exit('There are ' + str(len(response)) +
-                ' entries with no associated project!')
+                 ' entries with no associated project!')
 
     # Request time entries
     params['project_ids'] = None
     response = requests.get(url, params=params,
-            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+                            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
     if response.status_code != 200:
         sys.exit('Request failed!' + str(response.status_code))
     response = response.json()
@@ -199,8 +199,8 @@ while cur_date <= until:
     per_page = response['per_page']
     if total_count > per_page:
         sys.exit('Total count is ' + str(total_count) +
-                '. Per page is ' + str(per_page) +
-                '. Paged reports not supported by this application!')
+                 '. Per page is ' + str(per_page) +
+                 '. Paged reports not supported by this application!')
 
     # Process time entries
     for item in response['data']:
@@ -236,8 +236,8 @@ for project in projects:
         print "Archiving project '{0}'".format(project['name'].encode('utf-8'))
         url = TOGGL_API_URL + 'projects/' + str(project['id'])
         data = {'project': {'active': False}}
-        response = requests.put(url, data=json.dumps(data),
-                auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+        response = requests.put(
+            url, data=json.dumps(data),
+            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
         if response.status_code != 200:
             sys.exit('Request failed!')
-
