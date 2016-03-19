@@ -166,9 +166,9 @@ while cur_date <= until:
     total_duration = 0
     for item in response:
         total_duration += item['duration']
-    if total_duration != 86400:
+    if not (85800 <= total_duration <= 87000):
         sys.exit('Total duration is ' + str(total_duration) +
-                 '. Must be 86400!')
+                 '. Must be between 85800 and 87000!')
 
     # Filter current date
     filter_date = cur_date.strftime('%Y-%m-%d')
