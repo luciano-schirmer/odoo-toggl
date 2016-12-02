@@ -151,25 +151,6 @@ while cur_date <= until:
     print 'Processing Toggl time entries from {0}...'.format(
             cur_date.strftime('%Y-%m-%d'))
 
-    # Request to verify if time entries fulfill a 24-hours day
-    api_params = {
-        'start_date': cur_date.replace(
-            hour=0, minute=0, second=0, microsecond=0).isoformat(),
-        'end_date': cur_date.replace(
-            hour=23, minute=59, second=59, microsecond=0).isoformat()
-    }
-    response = requests.get(api_url, params=api_params,
-                            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
-    if response.status_code != 200:
-        sys.exit('Request failed!' + str(response.status_code))
-    response = response.json()
-    total_duration = 0
-    for item in response:
-        total_duration += item['duration']
-    if not (85800 <= total_duration <= 87000):
-        sys.exit('Total duration is ' + str(total_duration) +
-                 '. Must be between 85800 and 87000!')
-
     # Filter current date
     filter_date = cur_date.strftime('%Y-%m-%d')
     params['since'] = filter_date
