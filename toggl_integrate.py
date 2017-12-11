@@ -1,57 +1,63 @@
-#!/usr/bin/python
+#!venv/bin/python
 # -*- coding: utf-8 -*-
-import json
+import os
 import sys
 import getpass
-import openerplib
+import argparse
+import xmlrpclib
+import json
 import requests
 from requests.auth import HTTPBasicAuth
-from datetime import datetime
-from datetime import timedelta
-from dateutil import tz
+from datetime import datetime, timedelta
 import dateutil.parser
-import argparse
 
-# Definitions
-ODOO_HOSTNAME = '192.168.1.4'  # Odoo hostname
-ODOO_DATABASE = 'prod'  # Odoo database name
-ODOO_USER = 'odoo_user'  # Odoo user name
-ODOO_TIMEZONE = 'America/Sao_Paulo'  # Timezone
-TOGGL_API_TOKEN = ''  # please complete with Toggl API token
+# Rounding (minutes)
+ROUNDING_MINUTES = 15
+
+# Odoo definitions
+odoo_url = os.getenv('ODOO_URL', '')
+odoo_db = os.getenv('ODOO_DB', '')
+odoo_username = os.getenv('ODOO_USERNAME', '')
+odoo_password = os.getenv('ODOO_PASSWORD', '')
+
+# Toggl definitions
 TOGGL_API_URL = 'https://www.toggl.com/api/v8/'
 TOGGL_REPORTS_URL = 'https://toggl.com/reports/api/v2/'
-TOGGL_WORKSPACE = 'Company'  # Toggl workspace to process
-TOGGL_USER_AGENT = 'User name <email@address>'  # This is required by Toggl
+toggl_api_token = os.getenv('TOGGL_API_TOKEN', '')
+toggl_workspace = os.getenv('TOGGL_WORKSPACE', '')
+toggl_user_agent = os.getenv('TOGGL_USER_AGENT', '')
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Integrate Odoo with Toggl.')
-parser.add_argument('-u', '--username', action='store', help='Odoo username')
-parser.add_argument('-p', '--password', action='store', help='Odoo password')
+#parser.add_argument('-u', '--username', action='store', help='Odoo username')
+#parser.add_argument('-p', '--password', action='store', help='Odoo password')
 parser.add_argument('-o', '--one', action='store_true',
                     help='Process only one day and exit')
+parser.add_argument('-p', '--projects_only', action='store_true',
+                    help='Process only projects and no time entries')
 args = parser.parse_args()
 
-# Get Odoo user name and password
-if args.username:
-    odoo_username = args.username
-else:
-    odoo_username = raw_input('Odoo User: ')
-if args.password:
-    odoo_password = args.password
-else:
-    odoo_password = getpass.getpass('Odoo Password: ')
-if not (args.username and args.password):
-    print
+## Get Odoo user name and password
+#if args.username:
+#    odoo_username = args.username
+#else:
+#    odoo_username = raw_input('Odoo User: ')
+#if args.password:
+#    odoo_password = args.password
+#else:
+#    odoo_password = getpass.getpass('Odoo Password: ')
+#if not (args.username and args.password):
+#    print()
 
-# Connect to Odoo
-connection = openerplib.get_connection(hostname=ODOO_HOSTNAME,
-                                       database=ODOO_DATABASE,
-                                       login=odoo_username,
-                                       password=odoo_password)
+# Access Odoo
+print('Connecting to Odoo...')
+common = xmlrpclib.ServerProxy('{}/xmlrpc/2/common'.format(odoo_url))
+uid = common.authenticate(odoo_db, odoo_username, odoo_password, {})
+models = xmlrpclib.ServerProxy('{}/xmlrpc/2/object'.format(odoo_url))
 
 # Toggl authentication via HTTP Basic Auth
-url = TOGGL_API_URL + 'me'
-response = requests.get(url, auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+auth_url = TOGGL_API_URL + 'me'
+response = requests.get(auth_url, auth=HTTPBasicAuth(toggl_api_token, 'api_token'))
 if response.status_code != 200:
     sys.exit('Login failed. Check your API key.')
 response = response.json()
@@ -60,13 +66,14 @@ response = response.json()
 # Workspace id
 try:
     wid = [item['id'] for item in response['data']['workspaces']
-           if item['admin'] == True and item['name'] == TOGGL_WORKSPACE][0]
+           if item['admin'] == True and item['name'] == toggl_workspace][0]
 except IndexError:
     sys.exit('Workspace not found!')
 
 # Get projects from Toggl
-url = TOGGL_API_URL + 'workspaces/' + str(wid) + '/projects'
-response = requests.get(url, auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+workspaces_url = TOGGL_API_URL + 'workspaces/' + str(wid) + '/projects'
+response = requests.get(
+        workspaces_url, auth=HTTPBasicAuth(toggl_api_token, 'api_token'))
 if response.status_code != 200:
     sys.exit('Request failed!')
 response = response.json()
@@ -74,67 +81,62 @@ projects = [{'id': item['id'], 'name': item['name'],
              'active': item['active'], 'archive': True}
             for item in response]
 
-# Add Oddo tasks as Toggl projects and create dictionary with ids to use later.
-task_model = connection.get_model('project.task')
-open_tasks = task_model.search([('state', '=', 'open')])
-open_tasks_dict = dict()
-for task in open_tasks:
-    task_info = task_model.read(task, ['id', 'name'])
-    open_tasks_dict[task_info['name']] = task_info['id']
-    found = False
-    for project in projects:
-        if project['name'] == task_info['name']:
-            found = True
-            project['archive'] = False
-            break
-    if not found:
-        print "Creating project '{0}'".format(
-                task_info['name'].encode('utf-8'))
-        url = TOGGL_API_URL + 'projects'
-        data = {'project': {
-            'name': task_info['name'],
-            'wid': wid,
-            'color': '13'
-        }}
-        response = requests.post(
-            url, data=json.dumps(data),
-            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
-        if response.status_code != 200:
-            sys.exit('Request failed!')
-
 # Find user id
-user_model = connection.get_model('res.users')
-user_ids = user_model.search([('login', '=', ODOO_USER)])
-user_info = user_model.read(user_ids[0], ['id', 'name'])
-user_id = user_info['id']
+[odoo_user] = models.execute_kw(odoo_db, uid, odoo_password, 'res.users',
+        'search_read', [[['login', '=', odoo_username]]],
+        {'fields': ['id', 'name'], 'limit': 1})
+
+# Add Oddo tasks as Toggl projects and create dictionary with ids to use later.
+ids = models.execute_kw(odoo_db, uid, odoo_password, 'project.task', 'search',
+        [[['active', '=', True], ['user_id', '=', odoo_user['id']]]], {'order': 'name'})
+if len(ids) > 0:
+    open_tasks_dict = dict()
+    # Other fields include: kanban_state, stage_id
+    open_tasks = models.execute_kw(odoo_db, uid, odoo_password, 'project.task',
+            'read', [ids], {'fields': ['id', 'name', 'project_id']})
+    for task in open_tasks:
+        # print('{} - {}'.format(task['id'], task['name'].encode('utf-8')))
+        open_tasks_dict[task['name']] = (task['id'], task['project_id'])
+        found = False
+        for project in projects:
+            if project['name'] == task['name']:
+                found = True
+                project['archive'] = False
+                break
+        if not found:
+            print "Creating project '{0}'".format(task['name'].encode('utf-8'))
+            projects_url = TOGGL_API_URL + 'projects'
+            data = {'project': {
+                'name': task['name'],
+                'wid': wid,
+                'color': '13'
+            }}
+            response = requests.post(
+                projects_url, data=json.dumps(data),
+                auth=HTTPBasicAuth(toggl_api_token, 'api_token'))
+            if response.status_code != 200:
+                sys.exit('Request failed!')
 
 # Find last date with task work entry in Odoo
-work_model = connection.get_model('project.task.work')
-works = work_model.search([('user_id', '=', user_id)], limit=1,
-                          order='date DESC')
-work_info = work_model.read(works[0], ['date'])
-
-# Convert UTC time to local time
-tz_utc = tz.gettz('UTC')
-tz_local = tz.gettz(ODOO_TIMEZONE)
-utc = datetime.strptime(work_info['date'], '%Y-%m-%d %H:%M:%S')
-utc = utc.replace(tzinfo=tz_utc)
-local = utc.astimezone(tz_local)
-print 'Last task work entry was ' + local.strftime('%Y-%m-%d %H:%M')
+[work] = models.execute_kw(odoo_db, uid, odoo_password, 'account.analytic.line',
+        'search_read', [[['user_id', '=', odoo_user['id']],
+            ['is_timesheet', '=', True]]],
+        {'fields': ['date'], 'limit': 1, 'order': 'date DESC'})
+print('Last task work entry was ' + work['date'])
 
 # Calculate start date to get data from Toggl
-since = local.replace(hour=0, minute=0, second=0, microsecond=0) + \
-        timedelta(days=1)
-until = datetime.now().replace(
-        tzinfo=tz_local, hour=0, minute=0, second=0, microsecond=0) + \
-            timedelta(days=-1)
-
+last_work_date = datetime.strptime(work['date'], '%Y-%m-%d')
+since = last_work_date + timedelta(days=1)
+until = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + \
+                timedelta(days=-1)
+print('Since ' + since.strftime('%Y-%m-%d'))
+print('Until ' + until.strftime('%Y-%m-%d'))
 
 # Prepare Toggl requests
-api_url = TOGGL_API_URL + 'time_entries'
-url = TOGGL_REPORTS_URL + 'details'
+# time_entries_url = TOGGL_API_URL + 'time_entries'
+reports_url = TOGGL_REPORTS_URL + 'details'
 params = {
-    'user_agent': TOGGL_USER_AGENT,
+    'user_agent': toggl_user_agent,
     'workspace_id': wid,
     'order_field': 'date',
     'order_desc': 'off',
@@ -145,7 +147,7 @@ params = {
 
 # Iterate each day
 cur_date = since
-while cur_date <= until:
+while (cur_date <= until) and not args.projects_only:
 
     # Informative message
     print 'Processing Toggl time entries from {0}...'.format(
@@ -158,8 +160,8 @@ while cur_date <= until:
 
     # Request to verify if all time entries have an associated project
     params['project_ids'] = '0'
-    response = requests.get(url, params=params,
-                            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+    response = requests.get(reports_url, params=params,
+                            auth=HTTPBasicAuth(toggl_api_token, 'api_token'))
     if response.status_code != 200:
         sys.exit('Request failed!' + str(response.status_code))
     response = response.json()
@@ -169,8 +171,8 @@ while cur_date <= until:
 
     # Request time entries
     params['project_ids'] = None
-    response = requests.get(url, params=params,
-                            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+    response = requests.get(reports_url, params=params,
+                            auth=HTTPBasicAuth(toggl_api_token, 'api_token'))
     if response.status_code != 200:
         sys.exit('Request failed!' + str(response.status_code))
     response = response.json()
@@ -187,7 +189,8 @@ while cur_date <= until:
     for item in response['data']:
 
         # Print information about time entry
-        seconds = timedelta(seconds=item['dur']/1000)
+        rounding = ROUNDING_MINUTES * 60.0
+        seconds = timedelta(seconds=round(item['dur']/1000/rounding) * rounding)
         start = dateutil.parser.parse(item['start'])
         end = dateutil.parser.parse(item['end'])
         print '[{0}] {1} - {2} (from {3} to {4})'.format(
@@ -196,29 +199,30 @@ while cur_date <= until:
                 start.strftime('%H:%M'), end.strftime('%H:%M'))
 
         # Insert task work entry in Odoo
-        start_utc = start.astimezone(dateutil.tz.tzutc())
-        work_model = connection.get_model('project.task.work')
-        work_id = work_model.create({
-            'name': item['description'],
-            'date': start_utc.isoformat(),
-            'task_id': open_tasks_dict[item['project']],
-            'hours': float(item['dur']) / 1000 / 3600,
-            'user_id': user_id
-            })
+        work_id = models.execute_kw(odoo_db, uid, odoo_password,
+                'account.analytic.line', 'create', [{
+                    'name': item['description'],
+                    'date': start.strftime('%Y-%m-%d'),
+                    'task_id': open_tasks_dict[item['project']][0],
+                    'project_id': open_tasks_dict[item['project']][1][0],
+                    'unit_amount': seconds.seconds / 3600.0,
+                    'is_timesheet': True,
+                    'user_id': odoo_user['id']
+                    }])
 
     # Next day
     cur_date += timedelta(days=1)
     if args.one:
         break
 
-# Archive Toggl projects which refer to closed (done) Odoo tasks
+# Archive Toggl projects which refer to archived Odoo tasks
 for project in projects:
     if project['archive']:
         print "Archiving project '{0}'".format(project['name'].encode('utf-8'))
-        url = TOGGL_API_URL + 'projects/' + str(project['id'])
+        projects_url = TOGGL_API_URL + 'projects/' + str(project['id'])
         data = {'project': {'active': False}}
         response = requests.put(
-            url, data=json.dumps(data),
-            auth=HTTPBasicAuth(TOGGL_API_TOKEN, 'api_token'))
+            projects_url, data=json.dumps(data),
+            auth=HTTPBasicAuth(toggl_api_token, 'api_token'))
         if response.status_code != 200:
             sys.exit('Request failed!')
