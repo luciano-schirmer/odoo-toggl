@@ -10,6 +10,7 @@ Script to integrate Odoo with Toggl service (time tracking).
 The script is written in Python language and requires the following packages:
 
 - requests
+- python-dateutil
 
 ### Environment variables
 
